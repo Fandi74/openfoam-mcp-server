@@ -1,0 +1,31 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OPENFOAM_MCP_WORK_DIR=/home/openfoam/openfoam-mcp-results
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        nlohmann-json3-dev \
+        software-properties-common \
+        wget \
+    && wget -qO /etc/apt/trusted.gpg.d/openfoam.asc https://dl.openfoam.org/gpg.key \
+    && add-apt-repository -y "http://dl.openfoam.org/ubuntu main" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends openfoam13 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY CMakeLists.txt LICENSE ./
+COPY src/ ./src/
+
+RUN bash -lc "source /opt/openfoam13/etc/bashrc && \
+    cmake -S /app -B /app/build -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build /app/build --parallel \$(nproc)" \
+    && useradd --create-home --shell /bin/bash openfoam \
+    && mkdir -p /home/openfoam/openfoam-mcp-results \
+    && chown -R openfoam:openfoam /app /home/openfoam/openfoam-mcp-results
+
+USER openfoam
+CMD ["bash", "-lc", "source /opt/openfoam13/etc/bashrc && exec /app/build/openfoam-mcp-server"]

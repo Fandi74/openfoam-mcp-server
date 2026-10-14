@@ -27,6 +27,30 @@ Description
 namespace Foam {
 namespace MCP {
 
+namespace {
+
+bool commandIsAvailable(const std::string& command) {
+    const char* pathValue = std::getenv("PATH");
+    if (pathValue == nullptr) {
+        return false;
+    }
+
+    std::stringstream directories(pathValue);
+    std::string directory;
+    while (std::getline(directories, directory, ':')) {
+        if (directory.empty()) {
+            continue;
+        }
+        const fs::path candidate = fs::path(directory) / command;
+        if (access(candidate.c_str(), X_OK) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 /*---------------------------------------------------------------------------*\
                         JSON Conversion Functions
 \*---------------------------------------------------------------------------*/
@@ -89,10 +113,17 @@ void from_json(const json& j, CaseResult& result) {
                         CaseManager Implementation
 \*---------------------------------------------------------------------------*/
 
-CaseManager::CaseManager() : workingDirectory_("/workspaces/openfoam-mcp-server/results") {
-    if (!fs::exists(workingDirectory_)) {
-        fs::create_directories(workingDirectory_);
+CaseManager::CaseManager() {
+    if (const char* configuredDirectory = std::getenv("OPENFOAM_MCP_WORK_DIR");
+        configuredDirectory != nullptr && *configuredDirectory != '\0') {
+        workingDirectory_ = configuredDirectory;
+    } else if (const char* userDirectory = std::getenv("WM_PROJECT_USER_DIR");
+               userDirectory != nullptr && *userDirectory != '\0') {
+        workingDirectory_ = fs::path(userDirectory) / "run" / "openfoam-mcp-server";
+    } else {
+        workingDirectory_ = fs::current_path() / "results";
     }
+    fs::create_directories(workingDirectory_);
 }
 
 CaseManager::CaseManager(const fs::path& workingDir) : workingDirectory_(workingDir) {
@@ -129,8 +160,16 @@ int CaseManager::executeCommand(const std::string& command, const std::string& w
     } else if (pid > 0) {
         // Parent process
         int status;
-        waitpid(pid, &status, 0);
-        return WEXITSTATUS(status);
+        if (waitpid(pid, &status, 0) == -1) {
+            return -1;
+        }
+        if (WIFEXITED(status)) {
+            return WEXITSTATUS(status);
+        }
+        if (WIFSIGNALED(status)) {
+            return 128 + WTERMSIG(status);
+        }
+        return -1;
     } else {
         // Fork failed
         return -1;
@@ -1169,16 +1208,24 @@ bool CaseManager::validateCaseParameters(const CaseParameters& params) const {
 }
 
 std::vector<std::string> CaseManager::getAvailableSolvers() const {
-    return {"simpleFoam",
-            "pimpleFoam",
-            "icoFoam",
-            "pisoFoam",
-            "rhoPimpleFoam",
-            "interFoam",
-            "foamRun -solver incompressibleFluid",
-            "foamRun -solver fluid",
-            "foamRun -solver multiphaseEuler",
-            "foamMultiRun"};
+    const std::vector<std::string> standaloneSolvers = {
+        "simpleFoam", "pimpleFoam", "icoFoam", "pisoFoam", "rhoPimpleFoam", "interFoam"};
+    std::vector<std::string> available;
+    for (const auto& solver : standaloneSolvers) {
+        if (commandIsAvailable(solver)) {
+            available.push_back(solver);
+        }
+    }
+
+    if (commandIsAvailable("foamRun")) {
+        available.push_back("foamRun -solver incompressibleFluid");
+        available.push_back("foamRun -solver fluid");
+        available.push_back("foamRun -solver multiphaseEuler");
+    }
+    if (commandIsAvailable("foamMultiRun")) {
+        available.push_back("foamMultiRun");
+    }
+    return available;
 }
 
 json CaseManager::getCaseParametersSchema() const {

@@ -1,0 +1,79 @@
+name: OpenFOAM 13 Release
+
+on:
+  push:
+    tags:
+      - openfoam13-v*
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Validate and publish OpenFOAM 13 release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      OPENFOAM_MCP_WORK_DIR: ${{ runner.temp }}/openfoam-mcp-release-work
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Install build tools and OpenFOAM 13
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake nlohmann-json3-dev software-properties-common wget ca-certificates
+          sudo sh -c "wget -O - https://dl.openfoam.org/gpg.key > /etc/apt/trusted.gpg.d/openfoam.asc"
+          sudo add-apt-repository -y "http://dl.openfoam.org/ubuntu main"
+          sudo apt-get update
+          sudo apt-get install -y openfoam13
+
+      - name: Configure and build
+        run: |
+          source /opt/openfoam13/etc/bashrc
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel "$(nproc)"
+
+      - name: Run OpenFOAM 13 tutorial integration cases
+        run: |
+          source /opt/openfoam13/etc/bashrc
+          python3 tests/integration/test_openfoam13_tutorial_runs.py
+
+      - name: Package Linux executable
+        run: |
+          mkdir -p dist/openfoam13-release
+          cp build/openfoam-mcp-server LICENSE README.md dist/openfoam13-release/
+          tar -czf "dist/openfoam-mcp-server-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" \
+            -C dist openfoam13-release
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image tags
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=match,pattern=openfoam13-v(.*),group=1
+            type=raw,value=openfoam13-latest
+
+      - name: Publish OpenFOAM 13 container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.openfoam13
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/openfoam-mcp-server-${{ github.ref_name }}-linux-x86_64.tar.gz

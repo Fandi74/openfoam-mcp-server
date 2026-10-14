@@ -247,24 +247,16 @@ conjugate heat transfer case generation are not implemented.
 ### Prerequisites
 
 #### System Requirements
-- **OS**: Ubuntu 20.04+ or Debian 11+ (recommended)
+- **OS**: Ubuntu 24.04 LTS (the OpenFOAM 13 CI and container target)
 - **Memory**: 8GB+ RAM (16GB+ recommended for large simulations)
 - **Storage**: 10GB+ available disk space
 - **CPU**: Multi-core processor (4+ cores recommended)
 
 #### Required Dependencies
 ```bash
-# Ubuntu/Debian - Install all dependencies
+# Ubuntu 24.04 - Install build dependencies
 sudo apt-get update
-sudo apt-get install -y \
-    cmake \
-    build-essential \
-    git \
-    nlohmann-json3-dev \
-    libboost-system-dev \
-    libboost-thread-dev \
-    sqlite3 \
-    libsqlite3-dev
+sudo apt-get install -y build-essential cmake nlohmann-json3-dev
 ```
 
 #### OpenFOAM Runtime
@@ -272,8 +264,14 @@ sudo apt-get install -y \
 The MCP server invokes OpenFOAM command-line utilities at runtime; CMake does
 not link against OpenFOAM libraries. Install the distribution you intend to
 use and source its environment before launching the MCP server. For OpenFOAM
-Foundation v13 in WSL:
+Foundation v13:
 ```bash
+sudo apt-get install -y software-properties-common wget ca-certificates
+sudo sh -c "wget -O - https://dl.openfoam.org/gpg.key > /etc/apt/trusted.gpg.d/openfoam.asc"
+sudo add-apt-repository "http://dl.openfoam.org/ubuntu main"
+sudo apt-get update
+sudo apt-get install -y openfoam13
+
 source /opt/openfoam13/etc/bashrc
 
 command -v blockMesh
@@ -287,31 +285,31 @@ command -v foamRun
 ```bash
 git clone https://github.com/webworn/openfoam-mcp-server.git
 cd openfoam-mcp-server
+git switch codex/openfoam13-heat-transfer
 ```
 
 2. **Build with CMake**
 ```bash
-mkdir build && cd build
-cmake ..
-make -j$(nproc)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel "$(nproc)"
 ```
 
 3. **Test Installation**
 ```bash
-# Test server builds successfully
-./openfoam-mcp-server-test  # Minimal test version
-./openfoam-mcp-server       # Full version (requires complete OpenFOAM setup)
-
-# Verify MCP connectivity
-python3 comprehensive_system_test.py
+python3 tests/integration/test_openfoam13_tutorial_runs.py
 ```
 
-### Dependencies Auto-Detection
-The build system automatically detects:
-- ✅ **OpenFOAM Libraries**: `/opt/openfoam12/platforms/linux64GccDPInt32Opt/lib`
-- ✅ **nlohmann/json**: JSON parsing for MCP protocol
-- ✅ **Boost**: System and threading libraries
-- ✅ **SQLite3**: Optional case database storage
+The integration check copies the installed `incompressibleFluid/cavity`,
+`fluid/cavity`, and `incompressibleFluid/planarPoiseuille` tutorials into a
+temporary directory, shortens their end times, and runs each through the MCP
+`run_openfoam_case` tool. The installed tutorials are not modified.
+
+The server is compiled independently of OpenFOAM's C++ libraries and discovers
+the OpenFOAM command-line environment at runtime. The original `Dockerfile`
+continues to describe the OpenFOAM 12 image; this branch's OpenFOAM 13 image is
+`Dockerfile.openfoam13`. CI builds the binary and image. Pushing a tag such as
+`openfoam13-v1.0.0` validates, publishes a GHCR image, and creates a GitHub
+release with a Linux binary archive.
 
 ## 🤖 Claude Code Integration
 
@@ -322,17 +320,9 @@ Add the server to Claude Code using the CLI:
 ```bash
 # Add OpenFOAM MCP server
 claude mcp add-json openfoam-mcp-server '{
-  "command": "/workspaces/openfoam-mcp-server/build/openfoam-mcp-server-test",
-  "args": [],
-  "env": {
-    "LD_LIBRARY_PATH": "/opt/openfoam12/platforms/linux64GccDPInt32Opt/lib/dummy:/opt/openfoam12/platforms/linux64GccDPInt32Opt/lib",
-    "FOAM_INST_DIR": "/opt/openfoam12",
-    "WM_PROJECT_DIR": "/opt/openfoam12",
-    "FOAM_LIBBIN": "/opt/openfoam12/platforms/linux64GccDPInt32Opt/lib",
-    "FOAM_APPBIN": "/opt/openfoam12/platforms/linux64GccDPInt32Opt/bin",
-    "FOAM_ETC": "/opt/openfoam12/etc",
-    "PATH": "/opt/openfoam12/platforms/linux64GccDPInt32Opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-  }
+  "command": "bash",
+  "args": ["-lc", "source /opt/openfoam13/etc/bashrc && exec /workspaces/openfoam-mcp-server/build/openfoam-mcp-server"],
+  "env": {}
 }'
 
 # Verify server connection
@@ -456,13 +446,13 @@ The boundary conditions show a 500K temperature difference across a thin wall.
 **Local Development**:
 ```bash
 # Install dependencies
-sudo apt-get install cmake build-essential openfoam12 nlohmann-json3-dev
+sudo apt-get install cmake build-essential openfoam13 nlohmann-json3-dev
 
 # Clone and build
 git clone https://github.com/webworn/openfoam-mcp-server.git
 cd openfoam-mcp-server
-mkdir build && cd build
-cmake .. && make -j$(nproc)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel "$(nproc)"
 ```
 
 ### Adding New Analysis Tools

@@ -1,26 +1,11 @@
-# CI Status
+# OpenFOAM 13 CI/CD
 
-This file tracks the CI/CD pipeline status for the OpenFOAM MCP Server.
+The `codex/openfoam13-heat-transfer` branch targets OpenFOAM Foundation 13 on
+Ubuntu 24.04. `.github/workflows/ci.yml` builds the server, runs three copied
+OpenFOAM tutorial cases through the MCP case-runner, and builds the v13 Docker
+image. `.github/workflows/release-openfoam13.yml` repeats those checks for an
+`openfoam13-v*` tag, publishes the image to GHCR, and attaches a Linux binary
+archive to a GitHub release.
 
-## Current Status
-- ✅ Test infrastructure created
-- ✅ Code formatting applied
-- ✅ Missing CI files added
-- 🔄 Waiting for CI validation
-
-## Recent Changes
-- Added comprehensive physics validation tests
-- Created MCP protocol integration tests
-- Added performance benchmarking framework
-- Implemented Docker containerization
-- Added missing CI/CD infrastructure files
-
-## Test Coverage
-- Pipe flow validation (Hagen-Poiseuille, Blasius)
-- Heat transfer validation (Dittus-Boelter, Rayleigh-Nusselt)
-- External flow validation (drag coefficients)
-- MCP protocol compliance
-- Performance benchmarks
-- Unit tests
-
-Last updated: 2025-07-08 22:47:00 UTC
+The tutorial test shortens only temporary copies of the official tutorials and
+does not modify OpenFOAM's installed tutorial files.
